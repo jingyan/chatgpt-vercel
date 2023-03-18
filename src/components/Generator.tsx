@@ -55,7 +55,7 @@ export default function (props: {
       })
     },
     250,
-    { leading: true, trailing: false }
+    { leading: false, trailing: true }
   )
 
   onMount(() => {
@@ -96,51 +96,75 @@ export default function (props: {
       }
       if (session && archiveSession) {
         setMessageList(JSON.parse(session))
-      }
+      } else
+        setMessageList([
+          {
+            role: "assistant",
+            content: defaultMessage
+          }
+        ])
     } catch {
       console.log("Setting parse error")
     }
   })
 
-  createEffect(() => {
-    if (messageList().length === 0) {
-      setMessageList([
-        {
-          role: "assistant",
-          content: defaultMessage
-        }
-      ])
-    } else if (
-      messageList().length > 1 &&
-      messageList()[0].content === defaultMessage
-    ) {
-      setMessageList(messageList().slice(1))
+  createEffect((prev: number | undefined) => {
+    if (prev !== undefined && messageList().length > prev) {
+      scrollToBottom()
     }
-    localStorage.setItem("setting", JSON.stringify(setting()))
-    if (setting().archiveSession)
-      localStorage.setItem("session", JSON.stringify(messageList()))
+    return messageList().length
   })
 
   createEffect(() => {
+    if (currentAssistantMessage()) scrollToBottom()
+  })
+
+  createEffect(prev => {
     messageList()
-    currentAssistantMessage()
-    scrollToBottom()
+    if (prev) {
+      if (messageList().length === 0) {
+        setMessageList([
+          {
+            role: "assistant",
+            content: defaultMessage
+          }
+        ])
+      } else if (
+        messageList().length > 1 &&
+        messageList()[0].content === defaultMessage
+      ) {
+        setMessageList(messageList().slice(1))
+      }
+      if (setting().archiveSession) {
+        localStorage.setItem("session", JSON.stringify(messageList()))
+      }
+    }
+    return true
   })
 
   createEffect(() => {
-    setHeight("48px")
-    if (inputContent() === "") {
-      setCompatiblePrompt([])
-    } else {
-      const { scrollHeight } = inputRef
-      setHeight(
-        `${
-          scrollHeight > window.innerHeight - 64
-            ? window.innerHeight - 64
-            : scrollHeight
-        }px`
-      )
+    localStorage.setItem("setting", JSON.stringify(setting()))
+  })
+
+  createEffect(prev => {
+    inputContent()
+    if (prev) {
+      setHeight("48px")
+      if (inputContent() === "") {
+        setCompatiblePrompt([])
+      } else {
+        const { scrollHeight } = inputRef
+        setHeight(
+          `${
+            scrollHeight > window.innerHeight - 64
+              ? window.innerHeight - 64
+              : scrollHeight
+          }px`
+        )
+      }
+      inputRef.focus()
     }
+    return true
   })
 
   function archiveCurrentMessage() {
@@ -156,7 +180,6 @@ export default function (props: {
       setLoading(false)
       setController()
       !isMobile() && inputRef.focus()
-      scrollToBottom.flush()
     }
   }
 
@@ -185,13 +208,13 @@ export default function (props: {
     }
     try {
       await fetchGPT(inputValue)
-    } catch (error) {
+    } catch (error: any) {
       setLoading(false)
       setController()
       setCurrentAssistantMessage(
-        String(error).includes("The user aborted a request")
+        error.message.includes("The user aborted a request")
           ? ""
-          : String(error)
+          : error.message.replace(/(sk-\w{5})\w+/g, "$1")
       )
     }
     archiveCurrentMessage()
@@ -206,19 +229,21 @@ export default function (props: {
       role: "user",
       content: systemRule ? systemRule + "\n" + inputValue : inputValue
     }
-    const response = await fetch("/api/stream", {
+    const response = await fetch("/api", {
       method: "POST",
       body: JSON.stringify({
         messages: setting().continuousDialogue
           ? [...messageList().slice(0, -1), message]
           : [message],
-        key: setting().openaiAPIKey,
-        temperature: setting().openaiAPITemperature / 100
+        key: setting().openaiAPIKey || undefined,
+        temperature: setting().openaiAPITemperature / 100,
+        password: setting().password
       }),
       signal: controller.signal
     })
     if (!response.ok) {
-      throw new Error(response.statusText)
+      const res = await response.json()
+      throw new Error(res.error.message)
     }
     const data = response.body
     if (!data) {
@@ -244,7 +269,6 @@ export default function (props: {
   }
 
   function clearSession() {
-    // setInputContent("")
     setMessageList([])
     setCurrentAssistantMessage("")
   }
@@ -315,7 +339,7 @@ export default function (props: {
   }
 
   return (
-    <div mt-6 ref={containerRef!}>
+    <div ref={containerRef!} class="mt-2">
       <div
         id="message-container"
         style={{
@@ -400,6 +424,7 @@ export default function (props: {
                   }
                 } else if (e.key === "Enter") {
                   if (!e.shiftKey) {
+                    e.preventDefault()
                     handleButtonClick()
                   }
                 } else if (e.key === "ArrowUp") {

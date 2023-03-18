@@ -67,3 +67,14 @@ export function dateFormat(date: Date, fmt = "YYYY-mm-dd HH:MM") {
   })
   return fmt
 }
+
+export function splitKeys(keys: string) {
+  return keys
+    .trim()
+    .split(/\s*[\|\n]\s*/)
+    .filter(k => /sk-\w{48}/.test(k))
+}
+
+export function randomKey(keys: string[]) {
+  return keys.length ? keys[Math.floor(Math.random() * keys.length)] : ""
+}
