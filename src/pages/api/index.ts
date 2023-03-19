@@ -1,32 +1,22 @@
 import type { APIRoute } from "astro"
-import {
-  createParser,
-  ParsedEvent,
-  ReconnectInterval
-} from "eventsource-parser"
+import type { ParsedEvent, ReconnectInterval } from "eventsource-parser"
+import { createParser } from "eventsource-parser"
 import type { ChatMessage } from "~/types"
-import GPT3Tokenizer from "gpt3-tokenizer"
-import { splitKeys, randomKey } from "~/utils"
+import { countTokens } from "~/utils/tokens"
+import { splitKeys, randomKey, fetchWithTimeout } from "~/utils"
 
-const tokenizer = new GPT3Tokenizer({ type: "gpt3" })
+export const localKey = import.meta.env.OPENAI_API_KEY || ""
 
-export const localKey =
-  import.meta.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY || ""
+export const baseURL = import.meta.env.NOGFW
+  ? "api.openai.com"
+  : (import.meta.env.OPENAI_API_BASE_URL || "api.openai.com").replace(
+      /^https?:\/\//,
+      ""
+    )
 
-export const baseURL =
-  process.env.VERCEL || process.env.NOGFW
-    ? "api.openai.com"
-    : (
-        import.meta.env.OPENAI_API_BASE_URL ||
-        process.env.OPENAI_API_BASE_URL ||
-        "api.openai.com"
-      ).replace(/^https?:\/\//, "")
+const maxTokens = Number(import.meta.env.MAX_INPUT_TOKENS)
 
-const maxTokens = Number(
-  import.meta.env.MAX_INPUT_TOKENS || process.env.MAX_INPUT_TOKENS
-)
-
-const pwd = import.meta.env.PASSWORD || process.env.PASSWORD
+const pwd = import.meta.env.PASSWORD
 
 export const post: APIRoute = async context => {
   try {
@@ -73,7 +63,7 @@ export const post: APIRoute = async context => {
     if (!apiKey) throw new Error("没有填写 OpenAI API key，或者 key 填写错误。")
 
     const tokens = messages.reduce((acc, cur) => {
-      const tokens = tokenizer.encode(cur.content).bpe.length
+      const tokens = countTokens(cur.content)
       return acc + tokens
     }, 0)
 
@@ -88,20 +78,24 @@ export const post: APIRoute = async context => {
     const encoder = new TextEncoder()
     const decoder = new TextDecoder()
 
-    const rawRes = await fetch(`https://${baseURL}/v1/chat/completions`, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      method: "POST",
-      body: JSON.stringify({
-        model: "gpt-3.5-turbo",
-        messages,
-        temperature,
-        // max_tokens: 4096 - tokens,
-        stream: true
-      })
-    }).catch(err => {
+    const rawRes = await fetchWithTimeout(
+      `https://${baseURL}/v1/chat/completions`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`
+        },
+        timeout: 10000,
+        method: "POST",
+        body: JSON.stringify({
+          model: "gpt-3.5-turbo",
+          messages,
+          temperature,
+          // max_tokens: 4096 - tokens,
+          stream: true
+        })
+      }
+    ).catch(err => {
       return new Response(
         JSON.stringify({
           error: {
