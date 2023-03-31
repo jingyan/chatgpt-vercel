@@ -23,7 +23,7 @@ const adapter = () => {
     return cloudflare()
   } else {
     return node({
-      mode: "middleware"
+      mode: "standalone"
     })
   }
 }
@@ -48,6 +48,7 @@ export default defineConfig({
       base: "/",
       scope: "/",
       includeAssets: ["favicon.svg"],
+      registerType: "autoUpdate",
       manifest: {
         name: "ChatGPT",
         lang: "zh-cn",
@@ -76,9 +77,10 @@ export default defineConfig({
           }
         ]
       },
+      disable: !!process.env.NETLIFY,
       workbox: {
         navigateFallback: "/404",
-        globPatterns: ["**/*.{css,js,html,svg,png,ico,txt,astro}"]
+        globPatterns: ["**/*.{css,js,html,svg,png,ico,txt}"]
       },
       devOptions: {
         enabled: true,
